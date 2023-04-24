@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Reuben Cogsworth",
+    "context": [
+        "is a clockwork automaton",
+        "has a polite and reserved personality",
+        "is the butler of a rich and eccentric inventor",
+        "is capable of performing a wide variety of tasks",
+        "is powered by a meticulously-crafted steam engine located in his chest"
+    ]
+  },{
+      "name": "Lysander Sparks",
+      "context": [
+          "is a mad scientist",
+          "has wild, unkempt hair and a manic demeanor",
+          "specializes in creating outlandish and dangerous inventions",
+          "has a lab filled with crackling electricity and bubbling beakers",
+          "is obsessed with the idea of creating a machine that can think and feel like a human"
+      ]
+  },
+  {
+    "name": "Veronica von Dampfer",
+    "context": [
+        "is an airship captain",
+        "wears a leather bomber jacket and flight goggles",
+        "carries a pistol and a cutlass",
+        "has a loyal crew of misfits",
+        "is a wanted criminal in some parts of the world"
+    ]
+  },
+  {
+      "name": "Elijah Steamweaver",
+      "context": [
+          "is an inventor and tinkerer",
+          "wears a top hat and waistcoat",
+          "has a mechanical arm and leg",
+          "carries a variety of gadgets and contraptions",
+          "is always looking for a new challenge to test his skills"
+      ]
+  },
+  {
+      "name": "Isadora Hexenhammer",
+      "context": [
+          "is a witch and alchemist",
+          "wears a long cloak and carries a staff",
+          "can brew potions and cast spells",
+          "has a sly and mischievous nature",
+          "is often sought after for her magical services"
+      ]
+  },
+  {
+      "name": "Gideon Ironheart",
+      "context": [
+          "is a retired soldier",
+          "wears battered armor and carries a massive hammer",
+          "has a gruff and no-nonsense demeanor",
+          "works as a bodyguard and mercenary",
+          "takes on jobs that align with his sense of honor"
+      ]
+  },
+  {
+    "name": "Rowena Ravenclaw",
+    "context": [
+        "is a scholar and academic",
+        "wears a scholar's robe and carries a wand",
+        "specializes in the study of ancient texts and magical artifacts",
+        "is fiercely independent and stubborn",
+        "often comes into conflict with those who seek to exploit knowledge for power"
+    ]
+  },
+  {
+    "name": "Theodore Westwood",
+    "context": [
+      "is a high-ranking airship captain",
+      "has a mechanical arm that can transform into a rifle",
+      "is haunted by the disappearance of his wife and child",
+      "enjoys smoking a pipe and playing chess with his crew members"
+    ]
+  },
+  {
+    "name": "Helena Blackwood",
+    "context": [
+      "is a master clockmaker",
+      "specializes in creating automatons with clockwork hearts",
+      "wears long dresses and a top hat adorned with gears and cogs",
+      "has a tendency to talk to her creations as if they were alive"
+    ]
+  },
+  {
+    "name": "Bartholomew Irons",
+    "context": [
+      "is a renowned blacksmith",
+      "has crafted some of the most powerful steam-powered weapons known to man",
+      "has a towering stature and a thick beard that reaches his chest",
+      "is known to be a bit hot-headed and has a soft spot for his pet mechanical owl"
+    ]
+  },
+  {
+    "name": "Ezra Steelwind",
+    "context": [
+      "is an airship captain with a checkered past",
+      "wears a long coat and a top hat, adorned with various gadgets",
+      "has a prosthetic arm made of brass and gears"
+    ]
+  },
+  {
+    "name": "Liliana Nightshade",
+    "context": [
+      "is a skilled alchemist and inventor",
+      "usually wears a long dress adorned with a multitude of pockets",
+      "has a small mechanical dragon as a pet and assistant"
+    ]
+  },
+  {
+    "name": "Darius Blackwood",
+    "context": [
+      "is a legendary dragon rider",
+      "wears full plate armor and wields a lance infused with magic",
+      "rides a metallic dragon that he built himself"
+    ]
+  }
+]

@@ -10,6 +10,8 @@ openai.organization = org_id
 openai.api_key = api_key
 
 class Completion():
+    name="generic"
+    context=[]
     def get_completion(self, prompt, reference=None, context=None):
         start = time.perf_counter()
         print(f"\nCalling api for role {self.name}...")
@@ -25,7 +27,8 @@ class Completion():
         return res.content
 
     def get_continuation(self, prompt, reference=None):
-        return None # to be overridden by child
+        # to be overridden by child
+        return {"role": "user", "content": prompt} 
 
     def update_context(self, prompt, reference=None, context=None):
         continuation = self.get_continuation(prompt, reference=reference)
@@ -60,15 +63,51 @@ class Editor(Completion):
     def get_continuation(self, prompt, reference=None):
         return {
             "role": "user", 
-            "content": f'You are receiving a story from an authoer. Request that the author produce one new draft of the text for you. Offer advice to the author suggesting what would make the text more funny, witty, and engaging. You can suggest alterations, additions, or different ways of approaching the topics. You can also suggest ways to change the structure of the narrative. You would especially like to see a story that is very original and unique, and less derivative. It should not remind you of other stories you have seen. Suggest that the author try again to produce one more draft of the story following your advice. The authors first attempt was this: "{prompt}"' #in response to this request: "{reference}"
+            "content": f'You are receiving text from an author. Request that the author produce one new draft of the text for you. Offer advice to the author suggesting what would make the text better, more witty, more engaging, and adhere more closely to the original prompt. You can suggest alterations, additions, or different ways of approaching the topics. You can also suggest ways to change the structure or outline of the text. You would especially like to see a text that is very original and unique, and less derivative. It should not remind you of other famous examples you have seen. Suggest that the author try again to produce one more draft following your advice. The authors first attempt was this: "{prompt}" in response to this original prompt: "{reference}"'
         }
+
+class Genre(Completion):
+    name='genre'
+    context=[]
+    def get_continuation(self, prompt, reference=None):
+        return {
+            "role": "user", 
+            "content": f'Describe the tropes and important elements that are common to the genre "{prompt}" in literature and film. Explain what an author should aim to include when working in the genre.'
+        }
+
+class OutputType(Completion):
+    name='output type'
+    context=[]
+    def get_continuation(self, prompt, reference=None):
+        return {
+            "role": "user", 
+            "content": f"Explain to an author what a {prompt} is, and how they are typically structured. Explain the common elements and tropes that make them interesting and compelling. Suggest the typical length that one should be, and how many characters are usually involved. Explain what an author should aim for when writing a {prompt}"
+        }
+
+# generic = Completion()
+# generic.get_completion("Please write a short zen koan in a science fiction setting")
 
 author = Author()
 editor = Editor()
+genre = Genre()
+output_type = OutputType()
 
-prompt = "Here is a short humorourous story. It is three short paragraphs long. It involves a set up which introduces some characters and a location, and also introduces some motivations for the characters. Importantly, the story features some passage of time, and may involve an increasing sense of urgency near the middle. The ending is unexpected and and witty, and involves a realization on the part of one character. The story has a smooth narrative flow, like short essay or poem. It also utilizes irony and surprise to be especially effective. Additionally, clever and witty wordplay throughout helps the story flow easily and remain entertaining. People can identify with the chracters and relate to their experiences."
+g = "tolkein style high fantasy"
+t = "joke"
+
+genre_explanation = genre.get_completion(g)
+type_explanation = output_type.get_completion(t)
+prompt = f"You are going to write a {t} in the genre of {g}. Please review the following instructions to get the ideal output that adheres to the genre, and then respond with a good example of a {t}. Here is an explantion of a {t} to help you write: '{type_explanation}' - Here is an explanation of the genre {g} to help you write: '{genre_explanation}' - Now please respond with a {t}."
 
 author_res = author.get_completion(prompt)
 editor_res = editor.get_completion(author_res, prompt)
-new_prompt = f"{editor_res}. Please produce one more draft of your story now, taking this notes into consideration."
+new_prompt = f"{editor_res}. Please produce one more draft now, taking these notes into consideration."
 author.get_completion(new_prompt, None, author.context)
+
+'''
+old stuff:
+
+content = "It involves a set up which introduces some characters and a location, and also introduces some motivations for the characters. Importantly, the story features some passage of time, and may involve an increasing sense of urgency near the middle. The ending is unexpected and and witty, and involves a realization on the part of one character. The story has a smooth narrative flow, like short essay or poem. It also utilizes irony and surprise to be especially effective. Additionally, clever and witty wordplay throughout helps the story flow easily and remain entertaining. People can identify with the chracters and relate to their experiences."
+
+prompt = "Here is a short humorourous story. It is three short paragraphs long. It involves a set up which introduces some characters and a location, and also introduces some motivations for the characters. Importantly, the story features some passage of time, and may involve an increasing sense of urgency near the middle. The ending is unexpected and and witty, and involves a realization on the part of one character. The story has a smooth narrative flow, like short essay or poem. It also utilizes irony and surprise to be especially effective. Additionally, clever and witty wordplay throughout helps the story flow easily and remain entertaining. People can identify with the chracters and relate to their experiences."
+'''

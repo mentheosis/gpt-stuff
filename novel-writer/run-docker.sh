@@ -1,4 +1,4 @@
-docker build -t gpt-api -f ./Dockerfile.python .
+docker build -t gpt-api -f ./Dockerfile .
 
 #-p 8080:8080 \
 

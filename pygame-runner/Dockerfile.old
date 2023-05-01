@@ -1,0 +1,16 @@
+FROM python:3.9-alpine
+
+#RUN apk update
+#RUN apk add git
+
+WORKDIR /app
+RUN addgroup -g 1000 gamer && adduser -D -u 1000 -G gamer gamer
+RUN chown -R 1000:1000 /app 
+
+USER gamer
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY ./src /app/src
+
+CMD ["python", "src/test-api.py"]

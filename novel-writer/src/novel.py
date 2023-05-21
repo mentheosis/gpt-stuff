@@ -1,4 +1,4 @@
-import os, time, json
+import os, time, json, math
 import openai
 from dotenv import load_dotenv
 
@@ -10,23 +10,59 @@ openai.organization = org_id
 openai.api_key = api_key
 
 class Completion():
-    name="generic"
-    context=[]
+    system_context=[] # never changes, original system base context (e.g. system role input for chats)
+    def __init__(self, mode='completion', context_mode='rolling'):
+        self.name = self.__class__.__name__
+        self.context=[] # is updated according to context_mode
+        self.rolling_context=[] # appended to system context when using rolling mode
+        self.rolling_window_size = 4
+
+        self.modes = ['completion','chat']
+        self.context_modes = ['one','append','rolling'] # see docstrings on _context methods below
+        if mode in self.modes:
+            self.mode = mode
+        if context_mode in self.context_modes:
+            self.context_mode = context_mode
+
     def get_completion(self, prompt, reference=None, context=None):
         start = time.perf_counter()
-        print(f"\nCalling api for role {self.name}...")
+        print(f"\nCalling api for role {self.name} using mode {self.mode} and context_mode {self.context_mode} ...")
+        if self.mode == 'chat':
+            messages = self.update_context(prompt, reference, context)
+            res = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo", 
+                messages=messages,
+                temperature=1.2,
+            )
+            end = time.perf_counter()
+            print(f"Res after {end - start} seconds:\n",res.choices[0].message.content)
+            print("Usage", res.usage )
+            return res.choices[0].message.content
+        elif self.mode == 'completion':
+            messages = self.update_context(prompt, reference, context)
+            prompt=""
+            for msg in messages:
+                prompt = f"{prompt}\n{msg['content']}"
 
-        messages = self.update_context(prompt, reference, context)
-
-        res = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo", 
-            messages=messages,
-            temperature=0.8,
-        )
-        end = time.perf_counter()
-        print(f"Res after {end - start} seconds:\n",res.choices[0].message.content)
-        print("Usage", res.usage )
-        return res.choices[0].message.content
+            print("Completion prompt is ", len(prompt), prompt)
+            res = openai.Completion.create(
+                model = "text-davinci-003",
+                prompt = prompt,
+                max_tokens = 4097 - math.floor(len(prompt)/4), # seems like a token is about 4 chars
+                temperature = 1.1,
+                top_p = 1,
+                n = 1,
+                #stream = false,
+                #logprobs = null,
+                #stop = "\n",
+            )
+            end = time.perf_counter()
+            print(f"Res after {end - start} seconds:\n",res.choices[0].text)
+            print("Usage", res.usage )
+            return res.choices[0].message.text
+        else:
+            print("Unknown mode, exiting.")
+            return 400
 
     def get_continuation(self, prompt, reference=None):
         # to be overridden by child
@@ -34,18 +70,41 @@ class Completion():
 
     def update_context(self, prompt, reference=None, context=None):
         continuation = self.get_continuation(prompt, reference=reference)
-        if context is None:
-            self.context.append(continuation)
-            return self.context
-        else:
-            context.append(continuation)
-            return context
+
+        if len(self.context) == 0 and len(self.system_context) > 0:
+            # ensure that the active context is initialized with the system_context the first time
+            self.context.extend(self.system_context)
+
+        # can pass in override context, otherwise use the instance context (which may be mutated)
+        active_context = context or self.context
+
+        if self.context_mode == 'append':
+            return self.append_context(active_context, continuation)
+        elif self.context_mode == 'rolling':
+            return self.roll_context(active_context, continuation)
+        elif self.context_mode == 'one':
+            return self.replace_context(active_context, continuation)
+
+
+    ''' Always grow the existing context by adding the new continuation onto it '''
+    def append_context(self, context, continuation):
+        context.append(continuation)
+        return context
+
+    ''' Always passes initial system context, and also includes several of the most recent continuations in a rolling window'''
+    def roll_context(self, context, continuation):
+        if len(self.rolling_context) > self.rolling_window_size:
+            del self.rolling_context[0]
+        self.rolling_context.append(continuation)
+        return context + self.rolling_context
+
+    ''' Always passes initial system context, and replace most recent continuation at the end (adds without mutating context) '''
+    def replace_context(self, context, continuation):
+        return context + [continuation]
+
 
 class CharacterGenerator(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """Your purpose is to create lists of assets as requested by the prompt. Your response will always be formatted in a python json= notation to facilitate parsing. For example, if asked to generate characters, your response should look like this:
 
@@ -71,14 +130,8 @@ class CharacterGenerator(Completion):
         """},
     ]
 
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
-
 class SettingGenerator(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """Your purpose is to describe the details of a fictional world based on the characters and objects which inhabit that world. You will be given a list of assets as a prompt, which will be formatted in a python json notation to facilitate parsing. For example, a list of characters will look like this:
 
@@ -106,14 +159,8 @@ class SettingGenerator(Completion):
         """},
     ]
 
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
-
 class PlotGenerator(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """Your purpose is to describe the details of relationships and tensions between characters, and in the world in general. You should create details of the history, news, and politics happening in the world that connect characters together. You will be given a list of assets as a prompt, which will be formatted in a python json notation to facilitate parsing. For example, a list of characters will look like this:
 
@@ -141,15 +188,9 @@ class PlotGenerator(Completion):
         """},
     ]
 
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
-
 
 class PlotElaborator(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """Your purpose is to speculate about unknown details and help create the missing pieces of a narrative. Given some existing plot summaries and lists of characters and assets, you will do your best to make guesses about the unclear and and unanswered details. You fill in extra detail, which can sometimes be surprising or intricate, to reveal the answers to mysteries in the plot. You also flesh out details throughout the text, elaborating on small details to make them into intricate tapestries of imagery and metaphor. You will be given some text describing characters and plt, and also a list of assets which will be formatted in a python json notation to facilitate parsing. For example, a list of characters will look like this:
 
@@ -177,15 +218,8 @@ class PlotElaborator(Completion):
         """},
     ]
 
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
-
-
 class SceneOutliner(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """Your purpose is to create the outline for a scene in a story, which may involve action, dialog, and progression. You will be given higher level summary of the plot details, and will begin generating the detailed moment to moment scene that builds up to that plot. The plot summary will include many extra details, but the prompt will specify that you should focus on a particular moment in that summary and provide the details of the scene during that moment. You should create a secene outline that is at least five paragraphs long.
 
@@ -207,15 +241,9 @@ class SceneOutliner(Completion):
         """},
     ]
 
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
-
 
 class SceneDetailer(Completion):
-    def __init__(self):
-        self.name = self.__class__.__name__
-
-    context = [
+    system_context = [
         {"role": "system", 
         "content": """ You are a novelist who writes dense and florid prose. You receive a very basic summary of plot points as an outline, and then produce a rich and dense literary exposition describing the scenes summarized by the outline. 
 
@@ -263,9 +291,6 @@ I sat awhile in perfect silence, rallying my stunned faculties. Immediately it o
 
 I looked at him steadfastly. His face was leanly composed; his gray eye dimly calm. Not a wrinkle of agitation rippled him. Had there been the least uneasiness, anger, impatience or impertinence in his manner; in other words, had there been any thing ordinarily human about him, doubtless I should have violently dismissed him from the premises. But as it was, I should have as soon thought of turning my pale plaster-of-paris bust of Cicero out of doors. I stood gazing at him awhile, as he went on with his own writing, and then reseated myself at my desk. This is very strange, thought I. What had one best do? But my business hurried me. I concluded to forget the matter for the present, reserving it for my future leisure. So calling Nippers from the other room, the paper was speedily examined.}
     """}]
-
-    def get_continuation(self, prompt, reference=None):
-        return {"role": "user", "content": prompt}
 
 
 def get_existing_characters():
@@ -336,42 +361,43 @@ def outline_scene():
     """
     return scene_outliner.get_completion(prompt)
 
-def detail_scene(prompt):
-    scene_detailer = SceneDetailer()
-    scene_detailer.get_completion(prompt)
-
-
-def main():
+def main(scene_mode="split"):
     print("Starting...")
 
-    #generate_characters()
-    #generate_setting()
-    #generate_plot()
-    #elaborate_plot()
-    #outline = outline_scene()
+    generate_characters()
+    generate_setting()
+    generate_plot()
+    elaborate_plot()
+    outline = outline_scene()
 
-    outline = """ Veronica von Dampfer traveled to a remote and squalid town on the edge of a vast desert to meet with the elderly scholar. She found him holed up in a ramshackle inn, surrounded by dusty books and vials of strange liquids. The scholar was suspicious at first, eyeing Veronica up and down with a look of disapproval, but she managed to win him over with her persuasive charms.
+#     outline = """ Veronica von Dampfer traveled to a remote and squalid town on the edge of a vast desert to meet with the elderly scholar. She found him holed up in a ramshackle inn, surrounded by dusty books and vials of strange liquids. The scholar was suspicious at first, eyeing Veronica up and down with a look of disapproval, but she managed to win him over with her persuasive charms.
 
-Veronica sat at the scholar's table and made small talk, trying to gauge his interests and figure out what would convince him to part with the map. She noticed that he was particularly proud of his collection of ancient artifacts, and she began to speak about her own interests in history and archaeology, dropping hints about her connections to academic circles and her wealth as a successful airship captain.
+# Veronica sat at the scholar's table and made small talk, trying to gauge his interests and figure out what would convince him to part with the map. She noticed that he was particularly proud of his collection of ancient artifacts, and she began to speak about her own interests in history and archaeology, dropping hints about her connections to academic circles and her wealth as a successful airship captain.
 
-As the evening wore on, Veronica turned the conversation to the map, asking the scholar if he knew anything about it. He hesitated at first, telling her that it was a family heirloom and that he couldn't simply give it away. However, Veronica pressed on, telling him that she was willing to pay handsomely for the map, and that she would make sure that it was put to good use.
+# As the evening wore on, Veronica turned the conversation to the map, asking the scholar if he knew anything about it. He hesitated at first, telling her that it was a family heirloom and that he couldn't simply give it away. However, Veronica pressed on, telling him that she was willing to pay handsomely for the map, and that she would make sure that it was put to good use.
 
-Eventually, the scholar relented, and he went to retrieve the map from a dusty shelf in the corner of the room. He unrolled it carefully and explained to Veronica what each of the symbols and markings meant. Veronica listened carefully, committing every detail to memory, and asked a few questions to clarify certain points.
+# Eventually, the scholar relented, and he went to retrieve the map from a dusty shelf in the corner of the room. He unrolled it carefully and explained to Veronica what each of the symbols and markings meant. Veronica listened carefully, committing every detail to memory, and asked a few questions to clarify certain points.
 
-When it was time for her to leave, Veronica thanked the scholar warmly and slipped a small pouch of coins over to him as a token of her appreciation. He seemed genuinely touched, and he bowed to Veronica before she headed out the door.
+# When it was time for her to leave, Veronica thanked the scholar warmly and slipped a small pouch of coins over to him as a token of her appreciation. He seemed genuinely touched, and he bowed to Veronica before she headed out the door.
 
-As she stepped out into the dusty streets, Veronica was feeling elated. She knew that the journey ahead would be fraught with danger, but she couldn't help but feel a sense of excitement at the prospect of discovering the cache of treasure and, perhaps, some answers about her missing sister.
-    """
+# As she stepped out into the dusty streets, Veronica was feeling elated. She knew that the journey ahead would be fraught with danger, but she couldn't help but feel a sense of excitement at the prospect of discovering the cache of treasure and, perhaps, some answers about her missing sister.
+#     """
 
-    split_outline = outline.split(".")
-    for item in split_outline:
-        if item != '':
-            prompt=f"Here is the summary: '{item}' - Now craft a detailed scene of florid prose from the summary."
-            print("\n\nPrompt:", prompt)
-            detail_scene(prompt)
+    outline="\n The scene starts as Veronica von Dampfer sails across the sky on her airship, flanked by her trusted allies, as they enter a small but isolated village far from the sea. She parks the ship down nearby and makes her way to a shabby inn where the residents watch her suspiciously as she scans the room for the elderly scholar she has been searching for. Eventually, her eyes settle on the old man, working in a corner over a stack of books and scrolls. She strides over to him and ushers the other patrons away, before introducing herself quietly and politely, but firmly, making sure the informed him that she has traveled quite far to meet him. \n\nHe shifts uncomfortably, his wrinkled skin betraying his surprise. He questions who she is and what she hopes to get from him- to which she smilingly responds, maintaining her polite yet no-nonsense demeanor. She explains her request, humbly but matter-of-factly, letting him know that she has the funds and assurances to recompense him for any trouble he may encounter in the future. She shows him documents of her voyage, proof of identity, and a letter of recommendation from the Queen's personal emissary, reassuring him of the legitimacy of her offer. \n\nHe shifts his eyes suspiciously, aware of her reputation, her hard eyes\u2014 but something in him realizes that what she says is true and that she means it. He looks her in the eye and gives a little nod\u2014in short he agrees. \n\nVeronica offers a small purse of money which he takes and slams the nearby books shut with a nod, indicating that he is done. He slowly trumps down the steps and finally reaches into his pocket, producing a neatly labeled and folded map which he hands to Veronica proudly. \n\nWith a satisfied smirk, she takes it and expresses her deepest gratitude, before turning around and making her way back to the airship to chart a course for the hidden treasure."
 
-    # prompt=f"Here is the summary: '{outline}' - Now craft a detailed scene of florid prose from the summary."
-    # detail_scene(prompt)
+    sd = SceneDetailer()
+    if scene_mode == "split":
+        split_outline = outline.split(".")
+        for item in split_outline:
+            if item != '':
+                prompt=f"Here is the summary: '{item}' - Now craft a detailed scene of florid prose from the summary."
+                print("\n\nPrompt:", prompt)
+                sd.get_completion(prompt)
+    elif scene_mode == 'not-split':
+        prompt=f"Here is the summary: '{outline}' - Now craft a detailed scene of florid prose from the summary."
+        sd.get_completion(prompt)
+    else:
+        print("Skipping scene detail")
 
     print("\n\nDone.")
 

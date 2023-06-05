@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import time, random, os
+#from utils import preprocess_text_nonbreaking, subword_tokenize
 
 print("TensorFlow version:", tf.__version__)
 print("Starting...")
@@ -310,14 +311,11 @@ class Transformer(tf.keras.Model):
         self.last_linear = tf.keras.layers.Dense(units=vocab_size_dec, name="lin_ouput")
 
     def create_mask_bytes(self, seq):
-        # Create the mask for padding
         # Convert byte tensor to integer tensor
-        seq = tf.strings.bytes_split(seq)
+        #seq = tf.strings.bytes_split(seq)
         seq = tf.strings.unicode_decode(seq, input_encoding='UTF-8')
-        
-        # Create the mask for padding
-        mask = tf.math.equal(seq, 0)
-        mask = tf.cast(mask, tf.float32)
+
+        mask = tf.cast(tf.math.equal(seq, 0), tf.float32)
         return mask[:, tf.newaxis, tf.newaxis, :]
 
     def create_mask_floats(self, seq):
@@ -326,8 +324,8 @@ class Transformer(tf.keras.Model):
         return mask[:, tf.newaxis, tf.newaxis, :]
 
     def create_padding_mask(self, seq): #seq: (batch_size, seq_length)
-        #return self.create_mask_floats(seq)
-        return self.create_mask_bytes(seq)
+        return self.create_mask_floats(seq)
+        #return self.create_mask_bytes(seq)
 
     def create_look_ahead_mask(self, seq):
         # Create the mask for the causal attention
@@ -345,6 +343,9 @@ class Transformer(tf.keras.Model):
         # Create the padding mask for the encoder
         enc_mask = self.create_padding_mask(enc_inputs)
 
+        print("create_padding_mask:",self.create_padding_mask(dec_inputs))
+        print("create_look_ahead_mask:",self.create_look_ahead_mask_orig(dec_inputs))
+
         # Create the mask for the causal attention
         dec_mask_1 = tf.maximum(
             self.create_padding_mask(dec_inputs),
@@ -353,14 +354,17 @@ class Transformer(tf.keras.Model):
 
         # Create the mask for the encoder-decoder attention
         dec_mask_2 = self.create_padding_mask(enc_inputs)
+
         # Call the encoder
         enc_outputs = self.encoder(enc_inputs, enc_mask, training)
+
         # Call the decoder
         dec_outputs = self.decoder(dec_inputs,
                                    enc_outputs,
                                    dec_mask_1,
                                    dec_mask_2,
                                    training)
+
         # Call the Linear and Softmax functions
         outputs = self.last_linear(dec_outputs)
 
@@ -444,37 +448,27 @@ def main_train(dataset, transformer, n_epochs, optimizer, loss_object, train_los
     return losses, accuracies
 
 
-def run():
-    dataset_path = '/home/transformer/dataset'
-    concatenated_data = ''
-    # Iterate over files in the folder
-    print("reading dataset", dataset_path)
-    for filename in os.listdir(dataset_path):
-        file_path = os.path.join(dataset_path, filename)
-        # Check if the file is a regular file
-        if os.path.isfile(file_path):
-            with open(file_path, 'r', errors='ignore') as file:
-                # Read the content of each file and concatenate it
-                file_content = file.read()
-                concatenated_data += file_content
+# Define a function to add random noise to the chunk
+def add_noise(chunk):
+    noisy_chunk = list(chunk)
+    for i in range(len(noisy_chunk)):
+        if random.random() < 0.1:
+            noisy_chunk[i] = chr(0) #chr(random.randint(32, 126))
+    return ''.join(noisy_chunk)
 
-    # Set the batch size and chunk size
+# Obsolete, first random attempt at prepping input data
+def prep_input_data_old():
+     # Set the batch size and chunk size
     batch_size = 32
     chunk_size = 1000
+
+    concatenated_data = input_text_generator()
 
     # Calculate the number of chunks based on the text length and chunk size
     num_chunks = len(concatenated_data) // chunk_size
 
     # Create a list of chunks from the large text
     chunks = [concatenated_data[i : i + chunk_size] for i in range(0, num_chunks * chunk_size, chunk_size)]
-
-    # Define a function to add random noise to the chunk
-    def add_noise(chunk):
-        noisy_chunk = list(chunk)
-        for i in range(len(noisy_chunk)):
-            if random.random() < 0.1:
-                noisy_chunk[i] = chr(0) #chr(random.randint(32, 126))
-        return ''.join(noisy_chunk)
 
     # Apply the noise function to each chunk and create enc_inputs and targets
     dataset = [
@@ -505,21 +499,108 @@ def run():
                 break
     #print_dataset(dataset)
 
+# Using the generator pattern (an iterable)
+def input_data_array(dataset_path):
+    print("Reading files from", dataset_path)
+    text_array = []
+    noised_array = []
+    max_len = 0
+    for filename in os.listdir(dataset_path):
+        file_path = os.path.join(dataset_path, filename)
+        # Check if the file is a regular file
+        if os.path.isfile(file_path):
+            with open(file_path, 'r', errors='ignore') as file:
+                # Read the content of each file and concatenate it
+                file_content = file.read()
+                #concatenated_data += file_content
+                #yield file_content
+                if len(file_content) > max_len:
+                    max_len = len(file_content)
+                text_array.append(file_content)
+                noised_array.append(add_noise(file_content))
+    return text_array, noised_array, max_len
+
+
+def prep_raw_data(input_data, noised_input_data, MAX_VOCAB_SIZE:int=10000):
+    # https://betterprogramming.pub/a-guide-on-the-encoder-decoder-model-and-the-attention-mechanism-401c836e2cdb
+
+    print("Prepping raw data...")
+    # Create a tokenizer for the input texts and fit it to them 
+    tokenizer_inputs = tf.keras.preprocessing.text.Tokenizer(num_words=MAX_VOCAB_SIZE, filters='')
+    tokenizer_inputs.fit_on_texts(input_data)
+
+    # Tokenize and transform input texts to sequence of integers
+    input_sequences = tokenizer_inputs.texts_to_sequences(input_data)
+    decoder_input_sequences = tokenizer_inputs.texts_to_sequences(noised_input_data)
+
+    # Calculate the max length
+    input_max_len = max(len(s) for s in input_sequences)
+    print('Max Input Length: ', input_max_len)
+
+    # Show some example of tokenize sentences, useful to check the tokenization
+    print("Sample of input text:", input_data[10][200:300])
+    print("Sample of token indices:", input_sequences[10][100:200])
+
+    # get the word to index mapping for input language
+    word2idx_inputs = tokenizer_inputs.word_index
+
+    # store number of output and input words for later
+    # remember to add 1 since indexing starts at 1
+    num_words_inputs = len(word2idx_inputs) + 1
+
+    # map indexes back into real words
+    # so we can view the results
+    idx2word_inputs = {v:k for k, v in word2idx_inputs.items()}
+
+    print(f'Found {len(word2idx_inputs)} unique input tokens')
+    return input_sequences, decoder_input_sequences, word2idx_inputs, idx2word_inputs, num_words_inputs
+
+
+def run():
+    dataset_path = '/home/transformer/dataset'
+    raw_input_texts, noised_input_texts, max_len = input_data_array(dataset_path)
+    input_sequences, decoder_input_sequences, word2idx_inputs, idx2word_inputs, num_tokens_inputs = prep_raw_data(raw_input_texts, noised_input_texts)
+
+    # pad the input sequences
+    # encoder_inputs = tf.keras.utils.pad_sequences(input_sequences, maxlen=max_len, padding='post')
+    # print("encoder_inputs.shape:", encoder_inputs.shape)
+    # print("encoder_inputs[0]:", encoder_inputs[0])
+
+    # pad the decoder input sequences
+    decoder_inputs = tf.keras.utils.pad_sequences(decoder_input_sequences, maxlen=max_len, padding='post')
+    print("decoder_inputs[0]:", decoder_inputs[0])
+    print("decoder_inputs.shape:", decoder_inputs.shape)
+
+    # pad the target output sequences
+    decoder_targets = tf.keras.utils.pad_sequences(input_sequences, maxlen=max_len, padding='post')
+
+    # Apply the noise function to each chunk and create enc_inputs and targets
+    dataset = [
+        (decoder_inputs[i], decoder_targets[i])
+        for i in range(len(decoder_inputs))
+    ]
+
+    # Create TensorFlow tensors from the dataset
+    enc_inputs = tf.constant([item[0] for item in dataset])
+    targets = tf.constant([item[1] for item in dataset])
+
+    # try to process 2 scripts in parallel batches?
+    dataset = tf.data.Dataset.from_tensor_slices((enc_inputs, targets)).batch(2) #.shuffle(buffer_size=num_chunks)
+
+
     D_MODEL = 216
     N_LAYERS = 6
     FFN_UNITS = 1
     N_HEADS = 8
     DROPOUT_RATE = 0.1
     EPOCHS = 3
-    CONTEXT_inputs = 1000
-    CONTEXT_output = 1000
     checkpoint_path = '/home/transformer/src/ckpts'
 
     # Clean the session
     tf.keras.backend.clear_session()
     # Create the Transformer model
-    transformer = Transformer(vocab_size_enc=CONTEXT_inputs,
-                            vocab_size_dec=CONTEXT_output,
+    transformer = Transformer(vocab_size_enc=num_tokens_inputs,
+                            vocab_size_dec=num_tokens_inputs,
                             d_model=D_MODEL,
                             n_layers=N_LAYERS,
                             FFN_units=FFN_UNITS,
